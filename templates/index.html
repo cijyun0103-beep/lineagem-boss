@@ -154,8 +154,9 @@
             fetch('/get_bosses')
                 .then(res => res.json())
                 .then(data => {
+                    const tbody = document.getElementById('bossTableBody');
                     for (const [bossName, info] of Object.entries(data)) {
-                        let row = document.querySelector(`tr[data-boss="${bossName}"]`);
+                        let row = tbody.querySelector(`tr[data-boss="${bossName}"]`);
                         if (row) {
                             row.setAttribute('data-respawn', info.respawn_time || '');
                         }
@@ -189,7 +190,6 @@
                 const intervalMs = intervalMinutes * 60 * 1000;
                 let cyclesPassed = 0;
 
-                // 核心修改：如果當前時間已經超過預計重生時間，代表王「過期未打」需要往下自動推算週期
                 while (now >= respawnTime) {
                     respawnTime += intervalMs;
                     cyclesPassed++;
@@ -204,7 +204,6 @@
                 const ss = String(respawnDate.getSeconds()).padStart(2, '0');
                 const timeFormatted = `${yyyy}-${mm}-${dd} ${hh}:${min}:${ss}`;
 
-                // 如果還沒過期（cyclesPassed 為 0），就不會顯示「(過N)」；只有當時間過了且尚未被重新登記時才會累計推算
                 if (cyclesPassed > 0) {
                     spanRespawn.innerHTML = `${timeFormatted} <span class="over-cycle">(過${cyclesPassed})</span>`;
                 } else {
@@ -215,27 +214,4 @@
                 row.dataset.diff = diff;
 
                 if (diff <= 60 * 1000 && diff > 0) {
-                    const seconds = Math.floor(diff / 1000);
-                    tdCountdown.textContent = `僅剩 ${seconds} 秒`;
-                    tdCountdown.className = 'countdown warning';
-                } else {
-                    const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-                    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-                    const seconds = Math.floor((diff % (1000 * 60)) / 1000);
-                    
-                    tdCountdown.textContent = `${hours}時 ${minutes}分 ${seconds}秒`;
-                    tdCountdown.className = 'countdown';
-                }
-            });
-
-            rows.sort((a, b) => parseFloat(a.dataset.diff) - parseFloat(b.dataset.diff));
-            rows.forEach(row => tbody.appendChild(row));
-        }
-
-        setInterval(updateCountdowns, 1000);
-        setInterval(fetchBossData, 3000);
-
-        updateCountdowns();
-    </script>
-</body>
-</html>
+                    const seconds = Math.floor
