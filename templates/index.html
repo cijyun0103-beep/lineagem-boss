@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>天堂M 王表系統 - v1.2</title>
+    <title>天堂M 王表系統 - v1.3</title>
     <style>
         body { background-color: #121212; color: #e0e0e0; font-family: sans-serif; padding: 20px; margin: 0; }
         .header-container { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 10px; }
@@ -45,7 +45,7 @@
 <body>
     <div class="header-container">
         <h2>⚔️ 天堂M 王表系統</h2>
-        <span class="version-badge">v1.2</span>
+        <span class="version-badge">v1.3</span>
     </div>
     
     <!-- 上方快速登記按鈕列 -->
@@ -150,7 +150,6 @@
             }
         }
 
-        // 從後端抓取最新記憶資料
         function fetchBossData() {
             fetch('/get_bosses')
                 .then(res => res.json())
@@ -190,7 +189,7 @@
                 const intervalMs = intervalMinutes * 60 * 1000;
                 let cyclesPassed = 0;
 
-                // 如果時間超過，自動不斷往後推算週期 N
+                // 核心修改：如果當前時間已經超過預計重生時間，代表王「過期未打」需要往下自動推算週期
                 while (now >= respawnTime) {
                     respawnTime += intervalMs;
                     cyclesPassed++;
@@ -205,6 +204,7 @@
                 const ss = String(respawnDate.getSeconds()).padStart(2, '0');
                 const timeFormatted = `${yyyy}-${mm}-${dd} ${hh}:${min}:${ss}`;
 
+                // 如果還沒過期（cyclesPassed 為 0），就不會顯示「(過N)」；只有當時間過了且尚未被重新登記時才會累計推算
                 if (cyclesPassed > 0) {
                     spanRespawn.innerHTML = `${timeFormatted} <span class="over-cycle">(過${cyclesPassed})</span>`;
                 } else {
