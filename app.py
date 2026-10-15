@@ -28,7 +28,7 @@ boss_intervals = {
     "將軍": 360,
     "古代巨人": 510,
     "不死鳥": 480,
-    "克特": 600,
+    "克T": 600,
 }
 
 notified_bosses = set()
@@ -57,12 +57,13 @@ def check_and_notify_timers(db_rows):
       respawn_time = datetime.strptime(respawn_str, "%Y-%m-%d %H:%M:%S")
       diff_seconds = (respawn_time - now).total_seconds()
 
-      # 當剩餘時間在 0 到 70 秒之間時發送朗讀通知
-      if 0 < diff_seconds <= 70:
+      # 將觸發區間擴大到 120 秒內（確保每分鐘 Ping 的 cron-job 一定能抓到）
+      if 0 < diff_seconds <= 120:
         if boss_name not in notified_bosses:
           notified_bosses.add(boss_name)
           tts_msg = f"{boss_name}預計一分鐘後重生!"
           send_discord_message(tts_msg, tts=True)
+          print(f"成功發送通知: {tts_msg}")
     except Exception as e:
       print(f"時間解析錯誤: {e}")
 
@@ -124,7 +125,7 @@ def get_boss_database():
 @app.route("/")
 def index():
   boss_database = get_boss_database()
-  return render_template("index.html", bosses=boss_database, version="v2.8")
+  return render_template("index.html", bosses=boss_database, version="v2.9")
 
 
 @app.route("/get_bosses")
