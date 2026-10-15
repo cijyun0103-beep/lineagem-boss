@@ -4,7 +4,6 @@ from flask import Flask, jsonify, render_template, request
 app = Flask(__name__)
 
 # 5 隻核心王的重生週期（單位：分鐘）
-# 直接在記憶體中維護，雲端環境最穩定不失靈
 boss_database = {
     "死亡騎士": {"interval": 240, "respawn_time": None},
     "將軍": {"interval": 360, "respawn_time": None},
@@ -34,7 +33,7 @@ def record_kill(boss_name):
         "%Y-%m-%d %H:%M:%S"
     )
     return jsonify({"status": "success"})
-  return jsonify({"status": "error"}, 400)
+  return jsonify({"status": "error", "message": "找不到此王"}), 400
 
 
 @app.route("/manual_kill", methods=["POST"])
