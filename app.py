@@ -1,5 +1,4 @@
 from datetime import datetime, timedelta, timezone
-from apscheduler.schedulers.background import BackgroundScheduler
 from flask import Flask, jsonify, render_template, request
 import requests
 from supabase import create_client
@@ -122,25 +121,10 @@ def get_boss_database():
   return data
 
 
-# 定期背景檢查任務
-def scheduled_job():
-  with app.app_context():
-    try:
-      get_boss_database()
-    except Exception as e:
-      print(f"定時檢查執行錯誤: {e}")
-
-
-# 初始化 APScheduler 排程器
-scheduler = BackgroundScheduler()
-scheduler.add_job(func=scheduled_job, trigger="interval", seconds=30)
-scheduler.start()
-
-
 @app.route("/")
 def index():
   boss_database = get_boss_database()
-  return render_template("index.html", bosses=boss_database, version="v2.7")
+  return render_template("index.html", bosses=boss_database, version="v2.8")
 
 
 @app.route("/get_bosses")
