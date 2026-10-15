@@ -1,4 +1,6 @@
 from datetime import datetime, timedelta, timezone
+import threading
+import time
 from flask import Flask, jsonify, render_template, request
 import requests
 from supabase import create_client
@@ -57,6 +59,7 @@ def check_and_notify_timers(db_rows):
       respawn_time = datetime.strptime(respawn_str, "%Y-%m-%d %H:%M:%S")
       diff_seconds = (respawn_time - now).total_seconds()
 
+      # 當剩餘時間在 0 到 70 秒之間時發送通知
       if 0 < diff_seconds <= 70:
         if boss_name not in notified_bosses:
           notified_bosses.add(boss_name)
@@ -76,11 +79,13 @@ def get_boss_database():
   for boss, interval in boss_intervals.items():
     respawn_time_str = None
     missed_count = 0
+    row_match = None
 
     for row in db_rows:
       if row["name"] == boss:
         respawn_time_str = row["respawn_time"]
         missed_count = row.get("missed_count", 0) or 0
+        row_match = row
         break
 
     if boss not in existing_names:
@@ -120,10 +125,21 @@ def get_boss_database():
   return data
 
 
+# 背景定時執行緒：每 30 秒自動執行一次資料庫檢查與通知
+def background_scheduler():
+  while True:
+    try:
+      with app.app_context():
+        get_boss_database()
+    except Exception as e:
+      print(f"背景排程執行錯誤: {e}")
+    time.sleep(30)
+
+
 @app.route("/")
 def index():
   boss_database = get_boss_database()
-  return render_template("index.html", bosses=boss_database, version="v2.5")
+  return render_template("index.html", bosses=boss_database, version="v2.6")
 
 
 @app.route("/get_bosses")
@@ -225,4 +241,7 @@ def reset_all():
 
 
 if __name__ == "__main__":
+  # 啟動背景執行緒來定期檢查時間並發送 Discord 通知
+  t = threading.Thread(target=background_scheduler, daemon=True)
+  t.start()
   app.run(debug=True, port=5000)
