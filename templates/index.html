@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>天堂M 王表系統 - v1.2</title>
+    <style>
+        body { background-color: #121212; color: #e0e0e0; font-family: sans-serif; padding: 20px; margin: 0; }
+        .header-container { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 10px; }
+        h2 { color: #ffffff; margin: 0; font-size: 22px; }
+        .version-badge { background-color: #333; color: #8ab4f8; padding: 3px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; }
+        .section-title { margin-top: 20px; font-size: 16px; color: #8ab4f8; font-weight: bold; }
+        
+        /* PC版專屬上方按鈕列樣式 */
+        .pc-btn-container { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+        .btn-kill { padding: 10px 18px; background-color: #1a73e8; color: white; border: none; cursor: pointer; border-radius: 4px; font-weight: bold; font-size: 14px; }
+        .btn-kill:hover { background-color: #1557b0; }
+        
+        .btn-reset { padding: 12px; background-color: #d93025; color: white; border: none; cursor: pointer; border-radius: 4px; margin-top: 20px; font-weight: bold; width: 100%; font-size: 16px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; background-color: #1e1e1e; font-size: 14px; }
+        th, td { border: 1px solid #333; padding: 12px 10px; text-align: left; }
+        th { background-color: #2d2d2d; color: #ffffff; }
+        .expired { color: #888888; } 
+        .warning { color: #ea4335; font-weight: bold; font-size: 1.1em; } 
+        .over-cycle { color: #ea4335; font-weight: bold; margin-left: 5px; } 
+        .manual-box { margin-top: 15px; background: #1e1e1e; padding: 15px; border-radius: 6px; border: 1px solid #333; display: flex; gap: 10px; align-items: center; }
+        select, input { padding: 10px; background: #2d2d2d; color: white; border: 1px solid #555; border-radius: 4px; font-size: 14px; width: 100%; }
+        
+        /* 手機版按鈕樣式 */
+        .boss-btn { background: none; border: none; color: #8ab4f8; font-weight: bold; font-size: 15px; cursor: pointer; padding: 0; text-align: left; text-decoration: underline; }
+        .boss-btn:hover { color: #aecbfa; }
+
+        /* 響應式切換 */
+        .mobile-only-name { display: none; }
+        .pc-only-name { display: inline; }
+        .pc-top-buttons { display: block; }
+
+        @media screen and (max-width: 768px) {
+            body { padding: 12px; }
+            .mobile-only-name { display: inline; } 
+            .pc-only-name { display: none; } 
+        }
+    </style>
+</head>
+<body>
+    <div class="header-container">
+        <h2>⚔️ 天堂M 王表系統</h2>
+        <span class="version-badge">v1.2</span>
+    </div>
+    
+    <!-- 上方快速登記按鈕列 -->
+    <div class="pc-top-buttons">
+        <div class="section-title">⚡ 快速登記小工具</div>
+        <div class="pc-btn-container">
+            {% for boss in bosses %}
+            <button class="btn-kill" onclick="killBoss('{{ boss }}')">{{ boss }}</button>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="section-title">✍️ 手動補登</div>
+    <div class="manual-box">
+        <select id="manualBoss">
+            {% for boss in bosses %}
+            <option value="{{ boss }}">{{ boss }} ({{ bosses[boss].interval }}分)</option>
+            {% endfor %}
+        </select>
+        <input type="text" id="manualTime" placeholder="4或6碼(例1605)" maxlength="6" onkeypress="handleEnter(event)">
+        <button class="btn-kill" onclick="submitManual()">登記</button>
+    </div>
+
+    <div class="section-title">📊 王表現況</div>
+    <table>
+        <thead>
+            <tr>
+                <th>BOSS 名稱</th>
+                <th>間隔</th>
+                <th>預計重生時間</th>
+                <th>剩餘時間</th>
+            </tr>
+        </thead>
+        <tbody id="bossTableBody">
+            {% for boss, data in bosses.items() %}
+            <tr data-boss="{{ boss }}" data-interval="{{ data.interval }}" data-respawn="{{ data.respawn_time or '' }}">
+                <td>
+                    <span class="pc-only-name">{{ boss }}</span>
+                    <button class="mobile-only-name boss-btn" onclick="killBoss('{{ boss }}')">{{ boss }}</button>
+                </td>
+                <td>{{ data.interval }}分</td>
+                <td>
+                    <span class="respawn-text">
+                        {{ data.respawn_time or '尚未登記' }}
+                    </span>
+                </td>
+                <td class="countdown">-</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <button class="btn-reset" onclick="resetAll()">全部重置</button>
+
+    <script>
+        function killBoss(bossName) {
+            fetch('/kill/' + bossName, { method: 'POST' })
+                .then(res => res.json())
+                .then(data => {
+                    if(data.status === 'success') { fetchBossData(); }
+                });
+        }
+
+        function handleEnter(event) {
+            if (event.key === 'Enter' || event.keyCode === 13) {
+                submitManual();
+            }
+        }
+
+        function submitManual() {
+            const bossName = document.getElementById('manualBoss').value;
+            const timeStr = document.getElementById('manualTime').value.trim();
+
+            if (timeStr.length !== 4 && timeStr.length !== 6) {
+                alert('請輸入正確的 4 碼（例如 1605）或 6 碼（例如 160530）時間！');
+                return;
+            }
+
+            fetch('/manual_kill', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ boss_name: bossName, time_str: timeStr })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if(data.status === 'success') {
+                    document.getElementById('manualTime').value = '';
+                    fetchBossData();
+                } else {
+                    alert(data.message || '登記失敗');
+                }
+            });
+        }
+
+        function resetAll() {
+            if(confirm('確定要全部重置嗎？')) {
+                fetch('/reset', { method: 'POST' })
+                    .then(res => res.json())
+                    .then(data => {
+                        if(data.status === 'success') { fetchBossData(); }
+                    });
+            }
+        }
+
+        // 從後端抓取最新記憶資料
+        function fetchBossData() {
+            fetch('/get_bosses')
+                .then(res => res.json())
+                .then(data => {
+                    for (const [bossName, info] of Object.entries(data)) {
+                        let row = document.querySelector(`tr[data-boss="${bossName}"]`);
+                        if (row) {
+                            row.setAttribute('data-respawn', info.respawn_time || '');
+                        }
+                    }
+                    updateCountdowns();
+                });
+        }
+
+        function updateCountdowns() {
+            const tbody = document.getElementById('bossTableBody');
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            const now = new Date().getTime();
+
+            rows.forEach(row => {
+                const tdCountdown = row.querySelector('.countdown');
+                const spanRespawn = row.querySelector('.respawn-text');
+                if (!tdCountdown || !spanRespawn) return;
+
+                const baseRespawnStr = row.getAttribute('data-respawn');
+                const intervalMinutes = parseInt(row.getAttribute('data-interval'), 10);
+
+                if (!baseRespawnStr || baseRespawnStr === 'None' || baseRespawnStr === '') {
+                    spanRespawn.textContent = '尚未登記';
+                    tdCountdown.textContent = '-';
+                    tdCountdown.className = 'countdown expired';
+                    row.dataset.diff = Infinity;
+                    return;
+                }
+
+                let respawnTime = new Date(baseRespawnStr.replace(/-/g, '/')).getTime();
+                const intervalMs = intervalMinutes * 60 * 1000;
+                let cyclesPassed = 0;
+
+                // 如果時間超過，自動不斷往後推算週期 N
+                while (now >= respawnTime) {
+                    respawnTime += intervalMs;
+                    cyclesPassed++;
+                }
+
+                const respawnDate = new Date(respawnTime);
+                const yyyy = respawnDate.getFullYear();
+                const mm = String(respawnDate.getMonth() + 1).padStart(2, '0');
+                const dd = String(respawnDate.getDate()).padStart(2, '0');
+                const hh = String(respawnDate.getHours()).padStart(2, '0');
+                const min = String(respawnDate.getMinutes()).padStart(2, '0');
+                const ss = String(respawnDate.getSeconds()).padStart(2, '0');
+                const timeFormatted = `${yyyy}-${mm}-${dd} ${hh}:${min}:${ss}`;
+
+                if (cyclesPassed > 0) {
+                    spanRespawn.innerHTML = `${timeFormatted} <span class="over-cycle">(過${cyclesPassed})</span>`;
+                } else {
+                    spanRespawn.textContent = timeFormatted;
+                }
+
+                const diff = respawnTime - now;
+                row.dataset.diff = diff;
+
+                if (diff <= 60 * 1000 && diff > 0) {
+                    const seconds = Math.floor(diff / 1000);
+                    tdCountdown.textContent = `僅剩 ${seconds} 秒`;
+                    tdCountdown.className = 'countdown warning';
+                } else {
+                    const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+                    const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+                    
+                    tdCountdown.textContent = `${hours}時 ${minutes}分 ${seconds}秒`;
+                    tdCountdown.className = 'countdown';
+                }
+            });
+
+            rows.sort((a, b) => parseFloat(a.dataset.diff) - parseFloat(b.dataset.diff));
+            rows.forEach(row => tbody.appendChild(row));
+        }
+
+        setInterval(updateCountdowns, 1000);
+        setInterval(fetchBossData, 3000);
+
+        updateCountdowns();
+    </script>
+</body>
+</html>
