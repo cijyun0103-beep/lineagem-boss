@@ -1,9 +1,10 @@
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo  # Python 3.9+ 內建時區支援
 from flask import Flask, jsonify, render_template, request
 
 app = Flask(__name__)
 
-# 直接在記憶體中維護王表狀態，雲端環境最穩定、點擊即生效
+# 5 隻核心王的重生週期（單位：分鐘）
 boss_database = {
     "死亡騎士": {"interval": 240, "respawn_time": None},
     "將軍": {"interval": 360, "respawn_time": None},
@@ -11,6 +12,9 @@ boss_database = {
     "不死鳥": {"interval": 480, "respawn_time": None},
     "克特": {"interval": 600, "respawn_time": None},
 }
+
+# 台灣時區
+TW_TIMEZONE = ZoneInfo("Asia/Taipei")
 
 
 @app.route("/")
@@ -26,7 +30,8 @@ def get_bosses():
 @app.route("/kill/<boss_name>", methods=["POST"])
 def record_kill(boss_name):
   if boss_name in boss_database:
-    now = datetime.now()
+    # 強制取得台灣當下時間
+    now = datetime.now(TW_TIMEZONE)
     interval = boss_database[boss_name]["interval"]
     respawn = now + timedelta(minutes=interval)
     boss_database[boss_name]["respawn_time"] = respawn.strftime(
@@ -45,7 +50,8 @@ def manual_kill():
   if boss_name not in boss_database:
     return jsonify({"status": "error", "message": "找不到此王"}), 400
 
-  now = datetime.now()
+  # 強制採用台灣時區的當下日期
+  now = datetime.now(TW_TIMEZONE)
   try:
     if len(time_str) == 4:
       hour = int(time_str[0:2])
