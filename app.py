@@ -1,9 +1,12 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from flask import Flask, jsonify, render_template, request
 import requests
 from supabase import create_client
 
 app = Flask(__name__)
+
+# 定義台灣時區 (UTC+8)
+TW_TZ = timezone(timedelta(hours=8))
 
 # Supabase 資料庫連線設定
 SUPABASE_URL = "https://pauozfhclllxbidtxhxj.supabase.co"
@@ -43,7 +46,7 @@ def send_discord_message(content, tts=False):
 
 
 def check_and_notify_timers(db_rows):
-  now = datetime.now()
+  now = datetime.now(TW_TZ).replace(tzinfo=None)
   for row in db_rows:
     boss_name = row["name"]
     respawn_str = row["respawn_time"]
@@ -68,7 +71,7 @@ def get_boss_database():
   data = {}
   db_rows = response.data if response.data else []
   existing_names = {row["name"] for row in db_rows}
-  now = datetime.now()
+  now = datetime.now(TW_TZ).replace(tzinfo=None)
 
   for boss, interval in boss_intervals.items():
     respawn_time_str = None
@@ -120,7 +123,7 @@ def get_boss_database():
 @app.route("/")
 def index():
   boss_database = get_boss_database()
-  return render_template("index.html", bosses=boss_database, version="v2.4")
+  return render_template("index.html", bosses=boss_database, version="v2.5")
 
 
 @app.route("/get_bosses")
@@ -131,7 +134,7 @@ def get_bosses():
 @app.route("/kill/<boss_name>", methods=["POST"])
 def record_kill(boss_name):
   if boss_name in boss_intervals:
-    now = datetime.now()
+    now = datetime.now(TW_TZ).replace(tzinfo=None)
     kill_time_str = now.strftime("%H:%M:%S")
     interval = boss_intervals[boss_name]
     respawn = now + timedelta(minutes=interval)
@@ -165,7 +168,7 @@ def manual_kill():
   if boss_name not in boss_intervals:
     return jsonify({"status": "error", "message": "找不到此王"}), 400
 
-  now = datetime.now()
+  now = datetime.now(TW_TZ).replace(tzinfo=None)
   try:
     if len(time_str) == 4:
       hour = int(time_str[0:2])
