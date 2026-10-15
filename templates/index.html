@@ -11,7 +11,6 @@
         .version-badge { background-color: #333; color: #8ab4f8; padding: 3px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; }
         .section-title { margin-top: 20px; font-size: 16px; color: #8ab4f8; font-weight: bold; }
         
-        /* PC版專屬上方按鈕列樣式 */
         .pc-btn-container { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
         .btn-kill { padding: 10px 18px; background-color: #1a73e8; color: white; border: none; cursor: pointer; border-radius: 4px; font-weight: bold; font-size: 14px; }
         .btn-kill:hover { background-color: #1557b0; }
@@ -26,11 +25,9 @@
         .manual-box { margin-top: 15px; background: #1e1e1e; padding: 15px; border-radius: 6px; border: 1px solid #333; display: flex; gap: 10px; align-items: center; }
         select, input { padding: 10px; background: #2d2d2d; color: white; border: 1px solid #555; border-radius: 4px; font-size: 14px; width: 100%; }
         
-        /* 手機版按鈕樣式 */
         .boss-btn { background: none; border: none; color: #8ab4f8; font-weight: bold; font-size: 15px; cursor: pointer; padding: 0; text-align: left; text-decoration: underline; }
         .boss-btn:hover { color: #aecbfa; }
 
-        /* 響應式切換 */
         .mobile-only-name { display: none; }
         .pc-only-name { display: inline; }
         .pc-top-buttons { display: block; }
@@ -48,7 +45,6 @@
         <span class="version-badge">v1.3</span>
     </div>
     
-    <!-- 上方快速登記按鈕列 -->
     <div class="pc-top-buttons">
         <div class="section-title">⚡ 快速登記小工具</div>
         <div class="pc-btn-container">
@@ -102,10 +98,18 @@
 
     <script>
         function killBoss(bossName) {
-            fetch('/kill/' + bossName, { method: 'POST' })
+            fetch('/kill/' + encodeURIComponent(bossName), { method: 'POST' })
                 .then(res => res.json())
                 .then(data => {
-                    if(data.status === 'success') { fetchBossData(); }
+                    if(data.status === 'success') { 
+                        fetchBossData(); 
+                    } else {
+                        alert('登記失敗，請再試一次');
+                    }
+                })
+                .catch(err => {
+                    // 若遇主機剛從休眠喚醒，提示使用者再點一次
+                    alert('主機正在喚醒中，請再點擊一次登記按鈕！');
                 });
         }
 
@@ -137,6 +141,9 @@
                 } else {
                     alert(data.message || '登記失敗');
                 }
+            })
+            .catch(err => {
+                alert('主機正在喚醒中，請再點擊一次登記！');
             });
         }
 
@@ -162,7 +169,8 @@
                         }
                     }
                     updateCountdowns();
-                });
+                })
+                .catch(err => console.log('Syncing...'));
         }
 
         function updateCountdowns() {
@@ -214,4 +222,27 @@
                 row.dataset.diff = diff;
 
                 if (diff <= 60 * 1000 && diff > 0) {
-                    const seconds = Math.floor
+                    const seconds = Math.floor(diff / 1000);
+                    tdCountdown.textContent = `僅剩 ${seconds} 秒`;
+                    tdCountdown.className = 'countdown warning';
+                } else {
+                    const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+                    const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+                    
+                    tdCountdown.textContent = `${hours}時 ${minutes}分 ${seconds}秒`;
+                    tdCountdown.className = 'countdown';
+                }
+            });
+
+            rows.sort((a, b) => parseFloat(a.dataset.diff) - parseFloat(b.dataset.diff));
+            rows.forEach(row => tbody.appendChild(row));
+        }
+
+        setInterval(updateCountdowns, 1000);
+        setInterval(fetchBossData, 3000);
+
+        updateCountdowns();
+    </script>
+</body>
+</html>
