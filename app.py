@@ -28,7 +28,7 @@ boss_intervals = {
     "將軍": 360,
     "古代巨人": 510,
     "不死鳥": 480,
-    "克T": 600,
+    "克特": 600,
 }
 
 notified_bosses = set()
