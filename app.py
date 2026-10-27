@@ -1,9 +1,25 @@
 from datetime import datetime, timedelta, timezone
 from flask import Flask, jsonify, render_template, request
+from flask_apscheduler import APScheduler  # 引入本機背景排程
 import requests
 from supabase import create_client
 
 app = Flask(__name__)
+
+
+# 定義 Flask-APScheduler 的設定
+class Config:
+  JOBS = [{
+      "id": "background_check",
+      "func": "__main__:background_check_timers",
+      "trigger": "interval",
+      "seconds": 10,  # 每 10 秒在背景自動檢查一次，絕不會錯過 50~75 秒區間
+  }]
+
+  SCHEDULER_API_ENABLED = True
+
+
+app.config.from_object(Config)
 
 # 定義台灣時區 (UTC+8)
 TW_TZ = timezone(timedelta(hours=8))
@@ -23,6 +39,7 @@ DISCORD_WEBHOOK_URL = (
     "32kLWSD9jjvl-_ZTiUFfeosOoUE0lJJ5LRKeTVKXwP4Qyf-uqsWYlxzB5WnAlP3Z-fyK"
 )
 
+# 嚴格對應標準王名稱
 boss_intervals = {
     "死亡騎士": 240,
     "將軍": 360,
@@ -43,42 +60,69 @@ def send_discord_message(content, tts=False):
     print(f"Discord 發送失敗: {e}")
 
 
-def check_and_notify_timers(db_rows):
-  now = datetime.now(TW_TZ).replace(tzinfo=None)
-  for row in db_rows:
-    boss_name = row["name"]
-    respawn_str = row["respawn_time"]
-    is_notified = row.get("notified", False) or False
-
-    if not respawn_str:
-      continue
-
+# ==========================================
+# 獨立出來的背景自動檢查核心邏輯
+# ==========================================
+def background_check_timers():
+  with app.app_context():
     try:
-      respawn_time = datetime.strptime(respawn_str, "%Y-%m-%d %H:%M:%S")
-      diff_seconds = (respawn_time - now).total_seconds()
+      response = supabase.table("bosses").select("*").execute()
+      db_rows = response.data if response.data else []
+      now = datetime.now(TW_TZ).replace(tzinfo=None)
 
-      # 當距離重生時間大約落在 50 秒到 75 秒之間
-      if 50 <= diff_seconds <= 75:
-        # 檢查資料庫狀態，如果還沒被通知過
-        if not is_notified:
-          # 【關鍵防重複】立刻把資料庫的 notified 標記為 True，阻擋同時進來的其他請求
-          supabase.table("bosses").update({"notified": True}).eq(
-              "name", boss_name
-          ).execute()
+      for row in db_rows:
+        boss_name = row["name"]
+        respawn_str = row["respawn_time"]
+        is_notified = row.get("notified", False) or False
+        interval = boss_intervals.get(boss_name, 0)
 
-          tts_msg = f"{boss_name}預計一分鐘後重生!"
-          send_discord_message(tts_msg, tts=True)
-          print(f"成功發送通知: {tts_msg}")
+        if not respawn_str:
+          continue
 
-      # 如果時間已經過了重生點，或者距離已經拉開，將 notified 歸零重置，準備迎接下一次重生
-      elif diff_seconds < -30 or diff_seconds > 120:
-        if is_notified:
-          supabase.table("bosses").update({"notified": False}).eq(
-              "name", boss_name
-          ).execute()
+        respawn_time = datetime.strptime(respawn_str, "%Y-%m-%d %H:%M:%S")
+
+        # 自動滾動時間處理（防止時間過期卡住）
+        if respawn_time <= now:
+          missed_count = row.get("missed_count", 0) or 0
+          while respawn_time <= now:
+            respawn_time += timedelta(minutes=interval)
+            missed_count += 1
+            is_notified = False
+
+          supabase.table("bosses").update({
+              "respawn_time": respawn_time.strftime("%Y-%m-%d %H:%M:%S"),
+              "missed_count": missed_count,
+              "notified": is_notified,
+          }).eq("name", boss_name).execute()
+          continue
+
+        diff_seconds = (respawn_time - now).total_seconds()
+
+        # 當距離重生時間落在 50 秒到 75 秒之間
+        if 50 <= diff_seconds <= 75:
+          if not is_notified:
+            update_res = (
+                supabase.table("bosses")
+                .update({"notified": True})
+                .eq("name", boss_name)
+                .eq("notified", False)
+                .execute()
+            )
+
+            if update_res.data:
+              tts_msg = f"{boss_name}預計一分鐘後重生!"
+              send_discord_message(tts_msg, tts=True)
+              print(f"成功發送通知: {tts_msg}")
+
+        # 如果時間已經過了重生點，重置 notified 狀態
+        elif diff_seconds < -30 or diff_seconds > 120:
+          if is_notified:
+            supabase.table("bosses").update({"notified": False}).eq(
+                "name", boss_name
+            ).execute()
 
     except Exception as e:
-      print(f"時間解析錯誤: {e}")
+      print(f"背景定時檢查錯誤: {e}")
 
 
 def get_boss_database():
@@ -91,13 +135,11 @@ def get_boss_database():
   for boss, interval in boss_intervals.items():
     respawn_time_str = None
     missed_count = 0
-    is_notified = False
 
     for row in db_rows:
       if row["name"] == boss:
         respawn_time_str = row["respawn_time"]
         missed_count = row.get("missed_count", 0) or 0
-        is_notified = row.get("notified", False) or False
         break
 
     if boss not in existing_names:
@@ -107,36 +149,12 @@ def get_boss_database():
           "missed_count": 0,
           "notified": False,
       }).execute()
-    elif respawn_time_str:
-      try:
-        respawn_time = datetime.strptime(respawn_time_str, "%Y-%m-%d %H:%M:%S")
-        updated = False
-        while respawn_time <= now:
-          respawn_time += timedelta(minutes=interval)
-          missed_count += 1
-          updated = True
-          is_notified = False  # 時間滾動後，重置通知狀態
-
-        if updated:
-          respawn_time_str = respawn_time.strftime("%Y-%m-%d %H:%M:%S")
-          supabase.table("bosses").update({
-              "respawn_time": respawn_time_str,
-              "missed_count": missed_count,
-              "notified": is_notified,
-          }).eq("name", boss).execute()
-      except Exception as e:
-        print(f"自動滾動時間計算錯誤 ({boss}): {e}")
 
     data[boss] = {
         "interval": interval,
         "respawn_time": respawn_time_str,
         "missed_count": missed_count,
     }
-
-  # 重新抓取最新資料進行提醒檢查
-  updated_response = supabase.table("bosses").select("*").execute()
-  updated_rows = updated_response.data if updated_response.data else []
-  check_and_notify_timers(updated_rows)
 
   return data
 
@@ -162,7 +180,6 @@ def record_kill(boss_name):
     respawn_str = respawn.strftime("%H:%M:%S")
     respawn_db_str = respawn.strftime("%Y-%m-%d %H:%M:%S")
 
-    # 登記擊殺時，將 notified 設為 False
     supabase.table("bosses").update({
         "respawn_time": respawn_db_str,
         "missed_count": 0,
@@ -213,7 +230,6 @@ def manual_kill():
     respawn_str = respawn.strftime("%H:%M:%S")
     respawn_db_str = respawn.strftime("%Y-%m-%d %H:%M:%S")
 
-    # 手動補登時，將 notified 設為 False
     supabase.table("bosses").update({
         "respawn_time": respawn_db_str,
         "missed_count": 0,
@@ -244,4 +260,8 @@ def reset_all():
 
 
 if __name__ == "__main__":
-  app.run(debug=True, port=5000)
+  scheduler = APScheduler()
+  scheduler.init_app(app)
+  scheduler.start()
+  # 加上 use_reloader=False 避免本地端 debug 模式初始化兩次排程
+  app.run(debug=True, port=5000, use_reloader=False)
