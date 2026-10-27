@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from flask import Flask, jsonify, render_template, request
-from flask_apscheduler import APScheduler  # 引入本機背景排程
+from flask_apscheduler import APScheduler
 import requests
 from supabase import create_client
 
@@ -13,7 +13,7 @@ class Config:
       "id": "background_check",
       "func": "__main__:background_check_timers",
       "trigger": "interval",
-      "seconds": 10,  # 每 10 秒在背景自動檢查一次，絕不會錯過 50~75 秒區間
+      "seconds": 10,
   }]
 
   SCHEDULER_API_ENABLED = True
@@ -60,9 +60,7 @@ def send_discord_message(content, tts=False):
     print(f"Discord 發送失敗: {e}")
 
 
-# ==========================================
-# 獨立出來的背景自動檢查核心邏輯
-# ==========================================
+# 背景自動檢查核心邏輯
 def background_check_timers():
   with app.app_context():
     try:
@@ -81,7 +79,7 @@ def background_check_timers():
 
         respawn_time = datetime.strptime(respawn_str, "%Y-%m-%d %H:%M:%S")
 
-        # 自動滾動時間處理（防止時間過期卡住）
+        # 自動滾動時間處理
         if respawn_time <= now:
           missed_count = row.get("missed_count", 0) or 0
           while respawn_time <= now:
@@ -114,7 +112,6 @@ def background_check_timers():
               send_discord_message(tts_msg, tts=True)
               print(f"成功發送通知: {tts_msg}")
 
-        # 如果時間已經過了重生點，重置 notified 狀態
         elif diff_seconds < -30 or diff_seconds > 120:
           if is_notified:
             supabase.table("bosses").update({"notified": False}).eq(
@@ -130,7 +127,6 @@ def get_boss_database():
   data = {}
   db_rows = response.data if response.data else []
   existing_names = {row["name"] for row in db_rows}
-  now = datetime.now(TW_TZ).replace(tzinfo=None)
 
   for boss, interval in boss_intervals.items():
     respawn_time_str = None
@@ -162,7 +158,7 @@ def get_boss_database():
 @app.route("/")
 def index():
   boss_database = get_boss_database()
-  return render_template("index.html", bosses=boss_database, version="v2.9")
+  return render_template("index.html", bosses=boss_database, version="v2.10")
 
 
 @app.route("/get_bosses")
@@ -204,6 +200,18 @@ def manual_kill():
 
   if boss_name not in boss_intervals:
     return jsonify({"status": "error", "message": "找不到此王"}), 400
+
+  # 新增：如果輸入 -1 則直接重置該王
+  if time_str == "-1":
+    supabase.table("bosses").update({
+        "respawn_time": None,
+        "missed_count": 0,
+        "notified": False,
+    }).eq("name", boss_name).execute()
+
+    msg = f"🔄 **{boss_name}** 已透過手動輸入 `-1` 進行重置！"
+    send_discord_message(msg, tts=False)
+    return jsonify({"status": "success"})
 
   now = datetime.now(TW_TZ).replace(tzinfo=None)
   try:
@@ -263,5 +271,4 @@ if __name__ == "__main__":
   scheduler = APScheduler()
   scheduler.init_app(app)
   scheduler.start()
-  # 加上 use_reloader=False 避免本地端 debug 模式初始化兩次排程
   app.run(debug=True, port=5000, use_reloader=False)
