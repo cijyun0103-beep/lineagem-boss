@@ -158,12 +158,54 @@ def get_boss_database():
 @app.route("/")
 def index():
   boss_database = get_boss_database()
-  return render_template("index.html", bosses=boss_database, version="v2.10")
+  return render_template("index.html", bosses=boss_database, version="v2.5")
 
 
 @app.route("/get_bosses")
 def get_bosses():
   return jsonify(get_boss_database())
+
+
+# ==========================================
+# 🆕 專門給桌面浮動小視窗讀取的 API 路由
+# ==========================================
+@app.route("/api/next_boss")
+def get_next_boss():
+  try:
+    boss_data = get_boss_database()
+    now = datetime.now(TW_TZ).replace(tzinfo=None)
+
+    next_boss_name = "無"
+    min_diff = float("inf")
+    next_boss_time = "--"
+
+    for boss_name, info in boss_data.items():
+      respawn_str = info.get("respawn_time")
+      if respawn_str:
+        respawn_time = datetime.strptime(respawn_str, "%Y-%m-%d %H:%M:%S")
+        diff = (respawn_time - now).total_seconds()
+
+        # 尋找未來即將重生、且時間最近的王
+        if diff > 0 and diff < min_diff:
+          min_diff = diff
+          hours = int(diff // 3600)
+          minutes = int((diff % 3600) // 60)
+          seconds = int(diff % 60)
+
+          if hours > 0:
+            time_str = f"{hours}時 {minutes}分"
+          else:
+            time_str = f"{minutes}分 {seconds}秒"
+
+          next_boss_name = boss_name
+          next_boss_time = time_str
+
+    if min_diff != float("inf"):
+      return jsonify({"name": next_boss_name, "time": next_boss_time})
+    else:
+      return jsonify({"name": "目前無資料", "time": "--"})
+  except Exception as e:
+    return jsonify({"name": "計算錯誤", "time": str(e)})
 
 
 @app.route("/kill/<boss_name>", methods=["POST"])
@@ -192,83 +234,4 @@ def record_kill(boss_name):
   return jsonify({"status": "error", "message": "找不到此王"}), 400
 
 
-@app.route("/manual_kill", methods=["POST"])
-def manual_kill():
-  data = request.json
-  boss_name = data.get("boss_name")
-  time_str = data.get("time_str", "").strip()
-
-  if boss_name not in boss_intervals:
-    return jsonify({"status": "error", "message": "找不到此王"}), 400
-
-  # 新增：如果輸入 -1 則直接重置該王
-  if time_str == "-1":
-    supabase.table("bosses").update({
-        "respawn_time": None,
-        "missed_count": 0,
-        "notified": False,
-    }).eq("name", boss_name).execute()
-
-    msg = f"🔄 **{boss_name}** 已透過手動輸入 `-1` 進行重置！"
-    send_discord_message(msg, tts=False)
-    return jsonify({"status": "success"})
-
-  now = datetime.now(TW_TZ).replace(tzinfo=None)
-  try:
-    if len(time_str) == 4:
-      hour = int(time_str[0:2])
-      minute = int(time_str[2:4])
-      second = 0
-    elif len(time_str) == 6:
-      hour = int(time_str[0:2])
-      minute = int(time_str[2:4])
-      second = int(time_str[4:6])
-    else:
-      return jsonify({"status": "error", "message": "時間格式錯誤"}), 400
-
-    kill_time = now.replace(
-        hour=hour, minute=minute, second=second, microsecond=0
-    )
-    if kill_time > now:
-      kill_time = kill_time - timedelta(days=1)
-
-    kill_time_str = kill_time.strftime("%H:%M:%S")
-    interval = boss_intervals[boss_name]
-    respawn = kill_time + timedelta(minutes=interval)
-    respawn_str = respawn.strftime("%H:%M:%S")
-    respawn_db_str = respawn.strftime("%Y-%m-%d %H:%M:%S")
-
-    supabase.table("bosses").update({
-        "respawn_time": respawn_db_str,
-        "missed_count": 0,
-        "notified": False,
-    }).eq("name", boss_name).execute()
-
-    msg = (
-        f"✍️ **{boss_name}** (手動補登) 已於 `{kill_time_str}` 擊殺，預計於"
-        f" `{respawn_str}` 重生！"
-    )
-    send_discord_message(msg, tts=False)
-
-    return jsonify({"status": "success"})
-  except ValueError:
-    return jsonify({"status": "error", "message": "時間數值無效"}), 400
-
-
-@app.route("/reset", methods=["POST"])
-def reset_all():
-  for boss in boss_intervals:
-    supabase.table("bosses").update({
-        "respawn_time": None,
-        "missed_count": 0,
-        "notified": False,
-    }).eq("name", boss).execute()
-  send_discord_message("🔄 **【王表通知】** 所有王表時間已重置！", tts=False)
-  return jsonify({"status": "success"})
-
-
-if __name__ == "__main__":
-  scheduler = APScheduler()
-  scheduler.init_app(app)
-  scheduler.start()
-  app.run(debug=True, port=5000, use_reloader=False)
+@app.route
